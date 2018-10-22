@@ -24,7 +24,6 @@ import com.adobe.aem.commons.assetshare.components.predicates.SortPredicate;
 import com.adobe.aem.commons.assetshare.components.predicates.impl.options.SortOptionItem;
 import com.adobe.aem.commons.assetshare.components.search.SearchConfig;
 import com.adobe.aem.commons.assetshare.util.PredicateUtil;
-import com.adobe.cq.commerce.common.ValueMapDecorator;
 import com.adobe.cq.wcm.core.components.models.form.Options;
 import com.day.cq.search.Predicate;
 import java.util.ArrayList;
@@ -35,6 +34,7 @@ import org.apache.commons.lang3.StringUtils;
 import org.apache.sling.api.SlingHttpServletRequest;
 import org.apache.sling.api.resource.Resource;
 import org.apache.sling.api.resource.ValueMap;
+import org.apache.sling.api.wrappers.ValueMapDecorator;
 import org.apache.sling.models.annotations.Default;
 import org.apache.sling.models.annotations.Model;
 import org.apache.sling.models.annotations.Required;
@@ -42,141 +42,139 @@ import org.apache.sling.models.annotations.injectorspecific.Self;
 import org.apache.sling.models.annotations.injectorspecific.ValueMapValue;
 
 @Model(
-    adaptables = {SlingHttpServletRequest.class},
-    adapters = {SortPredicate.class},
-    resourceType = {SortPredicateImpl.RESOURCE_TYPE}
+        adaptables = {SlingHttpServletRequest.class},
+        adapters = {SortPredicate.class},
+        resourceType = {SortPredicateImpl.RESOURCE_TYPE}
 )
 public class SortPredicateImpl extends AbstractPredicate implements SortPredicate {
 
   protected static final String RESOURCE_TYPE = "asset-share-commons/components/search/sort";
 
+    private static final String NN_ITEMS = "items" ;
+    private static final String PN_TEXT = "text";
+    private static final String PN_ORDER_BY_CASE = "orderByCase";
+
   protected ValueMap valuesFromRequest = null;
 
-  private static final String UNKNOWN_SORT_BY = "Unknown";
+    private static final String UNKNOWN_SORT_BY = "Unknown";
 
-  private List<SortOptionItem> items = null;
+    private List<SortOptionItem> items = new ArrayList<>();
 
-  @Self
-  @Required
-  private SlingHttpServletRequest request;
+    @Self
+    @Required
+    private SlingHttpServletRequest request;
 
-  @Self
-  @Required
-  private Options coreOptions;
+    @Self
+    @Required
+    private Options coreOptions;
 
-  @Self
-  @Required
-  private SearchConfig searchConfig;
+    @Self
+    @Required
+    private SearchConfig searchConfig;
 
-  @ValueMapValue
-  @Default(values = "ASC")
-  private String ascendingLabel;
+    @ValueMapValue
+    @Default(values = "ASC")
+    private String ascendingLabel;
 
-  @ValueMapValue
-  @Default(values = "DESC")
-  private String descendingLabel;
+    @ValueMapValue
+    @Default(values = "DESC")
+    private String descendingLabel;
 
-  private List<SortOptionItem> sortOptions;
+    @PostConstruct
+    protected void init() {
+        initPredicate(request, coreOptions);
+        this.populateOptionItems();
+    }
 
-  @PostConstruct
-  protected void init() {
-    initPredicate(request, coreOptions);
-    sortOptions = new ArrayList<>();
-    this.populateOptionItems();
-  }
-
-  public List<SortOptionItem> getItems() {
-    if (items == null) {
-      items = new ArrayList<>();
+    @Override
+    public List<SortOptionItem> getItems() {
+      List<SortOptionItem> sortOptionItems = new ArrayList<>();
       final ValueMap initialValues = getInitialValues();
 
-      sortOptions.stream().forEach(optionItem -> {
+      items.stream().forEach(optionItem -> {
         if (PredicateUtil.isOptionInInitialValues(optionItem.getValue(), initialValues)) {
           optionItem.setSelected(true);
-          items.add(optionItem);
+          sortOptionItems.add(optionItem);
         } else {
           optionItem.setSelected(false);
-          items.add(optionItem);
+          sortOptionItems.add(optionItem);
         }
 
       });
+
+      return sortOptionItems;
     }
 
-    return items;
-  }
+    @Override
+    public String getOrderByLabel() {
+        String label = UNKNOWN_SORT_BY;
+        for (final SortOptionItem optionItem : getItems()) {
+            if (optionItem.isSelected()) {
+                label = optionItem.getText();
+                break;
+            }
+        }
 
-  @Override
-  public String getOrderByLabel() {
-    String label = UNKNOWN_SORT_BY;
-    for (final SortOptionItem optionItem : getItems()) {
-      if (optionItem.isSelected()) {
-        label = optionItem.getText();
-        break;
-      }
+        return label;
     }
 
-    return label;
-  }
-
-  @Override
-  public String getOrderBySortLabel() {
-    if (isAscending()) {
-      return ascendingLabel;
-    } else {
-      return descendingLabel;
-    }
-  }
-
-  @Override
-  public boolean isAscending() {
-    final String orderBySort = getInitialValues().get(Predicate.PARAM_SORT, String.class);
-    return Predicate.SORT_ASCENDING.equalsIgnoreCase(orderBySort);
-  }
-
-  @Override
-  public String getName() {
-    return "orderby";
-  }
-
-  @Override
-  public boolean isReady() {
-    return !getItems().isEmpty();
-  }
-
-  @Override
-  public ValueMap getInitialValues() {
-    if (valuesFromRequest == null) {
-      valuesFromRequest = new ValueMapDecorator(new HashMap<>());
-
-      String orderBy = PredicateUtil.getParamFromQueryParams(request, Predicate.ORDER_BY);
-      if (StringUtils.isBlank(orderBy)) {
-        orderBy = searchConfig.getOrderBy();
-      }
-      valuesFromRequest.put(Predicate.ORDER_BY, orderBy);
-
-      String orderBySort = PredicateUtil
-          .getParamFromQueryParams(request, Predicate.ORDER_BY + "." + Predicate.PARAM_SORT);
-      if (StringUtils.isBlank(orderBySort)) {
-        orderBySort = searchConfig.getOrderBySort();
-      }
-      valuesFromRequest.put(Predicate.PARAM_SORT, orderBySort);
+    @Override
+    public String getOrderBySortLabel() {
+        if (isAscending()) {
+            return ascendingLabel;
+        } else {
+            return descendingLabel;
+        }
     }
 
-    return valuesFromRequest;
-  }
-
-  private void populateOptionItems() {
-    Resource childItem = request.getResource().getChild("items");
-    if (childItem != null) {
-      childItem.getChildren().forEach(this::addOption);
+    @Override
+    public boolean isAscending() {
+         final String orderBySort = getInitialValues().get(Predicate.PARAM_SORT, String.class);
+         return Predicate.SORT_ASCENDING.equalsIgnoreCase(orderBySort);
     }
 
-  }
+    @Override
+    public String getName() {
+        return "orderby";
+    }
 
-  private void addOption(Resource resource) {
-    ValueMap properties = resource.getValueMap();
-    SortOptionItem sortOptionItem = new SortOptionItem(properties.get("text", String.class),
-        properties.get("value", String.class), properties.get("orderByCase", true));
-    sortOptions.add(sortOptionItem);
-  }
+    @Override
+    public boolean isReady() {
+        return !getItems().isEmpty();
+    }
+
+    @Override
+    public ValueMap getInitialValues() {
+        if (valuesFromRequest == null) {
+            valuesFromRequest = new ValueMapDecorator(new HashMap<>());
+
+            String orderBy = PredicateUtil.getParamFromQueryParams(request, Predicate.ORDER_BY);
+            if (StringUtils.isBlank(orderBy)) {
+                orderBy = searchConfig.getOrderBy();
+            }
+            valuesFromRequest.put(Predicate.ORDER_BY, orderBy);
+
+            String orderBySort = PredicateUtil.getParamFromQueryParams(request, Predicate.ORDER_BY + "." + Predicate.PARAM_SORT);
+            if (StringUtils.isBlank(orderBySort)) {
+                orderBySort = searchConfig.getOrderBySort();
+            }
+            valuesFromRequest.put(Predicate.PARAM_SORT, orderBySort);
+        }
+
+        return valuesFromRequest;
+    }
+
+    private void populateOptionItems() {
+       Resource childItem = request.getResource().getChild(NN_ITEMS);
+       if (childItem != null) {
+         childItem.getChildren().forEach(this::addOption);
+       }
+    }
+
+    private void addOption(Resource resource) {
+      ValueMap properties = resource.getValueMap();
+      SortOptionItem sortOptionItem = new SortOptionItem(properties.get(PN_TEXT, String.class),
+          properties.get("value", String.class), properties.get(PN_ORDER_BY_CASE, true));
+      items.add(sortOptionItem);
+    }
 }
